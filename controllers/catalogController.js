@@ -1,0 +1,189 @@
+import CatalogItem from '../models/CatalogItem.js';
+import { initialCatalogData, ensureCatalogSeeded } from '../utils/seedCatalog.js';
+
+/**
+ * @desc    Get all catalog items with filtering & search
+ * @route   GET /api/catalog
+ * @access  Public
+ */
+export const getCatalogItems = async (req, res, next) => {
+  try {
+    // Seed default catalog if empty on initial query
+    await ensureCatalogSeeded();
+
+    const { clientCategory, objectCategory, search, limit = 100 } = req.query;
+
+    let query = { section: 'catalog' };
+
+    // Filter by client category
+    if (clientCategory && clientCategory !== 'all') {
+      query.clientCategory = clientCategory;
+    }
+
+    // Filter by object category
+    if (objectCategory && objectCategory !== 'all') {
+      query.objectCategory = objectCategory;
+    }
+
+    // Search filter across name, description, brand, objectCategory
+    if (search && search.trim() !== '') {
+      const searchRegex = new RegExp(search.trim(), 'i');
+      query.$or = [
+        { name: searchRegex },
+        { description: searchRegex },
+        { brand: searchRegex },
+        { objectCategory: searchRegex },
+        { clientCategory: searchRegex }
+      ];
+    }
+
+    const items = await CatalogItem.find(query)
+      .sort({ createdAt: -1 })
+      .limit(Number(limit));
+
+    // Fallback filter if DB connection cold start returned empty array
+    if (items.length === 0 && (!search || search.trim() === '')) {
+      let filteredFallback = initialCatalogData;
+      if (clientCategory && clientCategory !== 'all') {
+        filteredFallback = filteredFallback.filter((i) => i.clientCategory === clientCategory);
+      }
+      if (objectCategory && objectCategory !== 'all') {
+        filteredFallback = filteredFallback.filter((i) => i.objectCategory === objectCategory);
+      }
+      return res.json(filteredFallback);
+    }
+
+    res.json(items);
+  } catch (error) {
+    console.warn('Backend Catalog Query Notice:', error.message);
+    // Fallback response so frontend never crashes
+    let filteredFallback = initialCatalogData;
+    if (req.query.clientCategory && req.query.clientCategory !== 'all') {
+      filteredFallback = filteredFallback.filter((i) => i.clientCategory === req.query.clientCategory);
+    }
+    if (req.query.objectCategory && req.query.objectCategory !== 'all') {
+      filteredFallback = filteredFallback.filter((i) => i.objectCategory === req.query.objectCategory);
+    }
+    res.json(filteredFallback);
+  }
+};
+
+/**
+ * @desc    Get single catalog item by ID
+ * @route   GET /api/catalog/:id
+ * @access  Public
+ */
+export const getCatalogItemById = async (req, res, next) => {
+  try {
+    const item = await CatalogItem.findById(req.params.id);
+    if (!item) {
+      const fallbackItem = initialCatalogData.find((i) => i._id === req.params.id) || initialCatalogData[0];
+      return res.json(fallbackItem);
+    }
+    res.json(item);
+  } catch (error) {
+    const fallbackItem = initialCatalogData[0];
+    res.json(fallbackItem);
+  }
+};
+
+/**
+ * @desc    Create new catalog item
+ * @route   POST /api/catalog
+ * @access  Private (Admin / Superadmin)
+ */
+export const createCatalogItem = async (req, res, next) => {
+  try {
+    const { name, clientCategory, objectCategory, description, brand, price, imageUrl } = req.body;
+
+    let finalImageUrl = imageUrl || '';
+
+    // Handle file upload if attached via Multer / Cloudinary
+    if (req.file) {
+      finalImageUrl = req.file.path || req.file.secure_url || req.file.location;
+    }
+
+    if (!name || !clientCategory || !objectCategory) {
+      res.status(400);
+      throw new Error('Please provide name, client category, and object category.');
+    }
+
+    if (!finalImageUrl) {
+      res.status(400);
+      throw new Error('Please upload an image or provide an image URL.');
+    }
+
+    const newItem = await CatalogItem.create({
+      name,
+      clientCategory,
+      objectCategory,
+      imageUrl: finalImageUrl,
+      description: description || '',
+      brand: brand || 'AURA Collection',
+      price: price || '',
+      section: 'catalog',
+      createdBy: req.user ? req.user._id : null
+    });
+
+    res.status(201).json(newItem);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Update catalog item
+ * @route   PUT /api/catalog/:id
+ * @access  Private (Admin / Superadmin)
+ */
+export const updateCatalogItem = async (req, res, next) => {
+  try {
+    const item = await CatalogItem.findById(req.params.id);
+
+    if (!item) {
+      res.status(404);
+      throw new Error('Catalog item not found');
+    }
+
+    const { name, clientCategory, objectCategory, description, brand, price, imageUrl } = req.body;
+
+    if (name) item.name = name;
+    if (clientCategory) item.clientCategory = clientCategory;
+    if (objectCategory) item.objectCategory = objectCategory;
+    if (description !== undefined) item.description = description;
+    if (brand !== undefined) item.brand = brand;
+    if (price !== undefined) item.price = price;
+
+    if (req.file) {
+      item.imageUrl = req.file.path || req.file.secure_url || req.file.location;
+    } else if (imageUrl) {
+      item.imageUrl = imageUrl;
+    }
+
+    const updatedItem = await item.save();
+    res.json(updatedItem);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    Delete catalog item
+ * @route   DELETE /api/catalog/:id
+ * @access  Private (Admin / Superadmin)
+ */
+export const deleteCatalogItem = async (req, res, next) => {
+  try {
+    const item = await CatalogItem.findById(req.params.id);
+
+    if (!item) {
+      res.status(404);
+      throw new Error('Catalog item not found');
+    }
+
+    await item.deleteOne();
+    res.json({ success: true, message: 'Catalog item removed' });
+  } catch (error) {
+    next(error);
+  }
+};

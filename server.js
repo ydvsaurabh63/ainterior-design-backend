@@ -11,6 +11,8 @@ import testimonialRoutes from './routes/testimonialRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import interiorRoutes from './routes/interiorRoutes.js';
 import popularItemRoutes from './routes/popularItemRoutes.js';
+import roomDesignRoutes from './routes/roomDesignRoutes.js';
+import catalogRoutes from './routes/catalogRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -51,6 +53,8 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/interior', interiorRoutes);
 app.use('/api/redesign-room', interiorRoutes);
 app.use('/api/popular-items', popularItemRoutes);
+app.use('/api/room-designs', roomDesignRoutes);
+app.use('/api/catalog', catalogRoutes);
 
 // Error Handling Middleware
 app.use(notFound);
@@ -58,6 +62,19 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
-});
+const startServer = (portToUse) => {
+  const server = app.listen(portToUse, () => {
+    console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${portToUse}`);
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`Port ${portToUse} is busy. Trying fallback port ${Number(portToUse) + 1}...`);
+      startServer(Number(portToUse) + 1);
+    } else {
+      console.error('Server error:', err.message);
+    }
+  });
+};
+
+startServer(PORT);

@@ -57,14 +57,13 @@ ${style}`;
  * Main service method to trigger AI Room Redesign via Replicate SDK
  */
 export const generateRoomRedesign = async ({ file, imageUrl, roomType, style, customInstruction }) => {
-  const prompt = buildInteriorPrompt({ roomType, style, customInstruction });
-  const rawToken = (process.env.REPLICATE_API_TOKEN || process.env.AI_API_KEY || '').trim();
+  const rawToken = (process.env.PIXVERSE_API_KEY || process.env.REPLICATE_API_TOKEN || process.env.AI_API_KEY || '').trim();
 
-  // Check if token is a valid Replicate token (starts with r8_ or r8-)
-  const isReplicateToken = Boolean(rawToken && (rawToken.startsWith('r8_') || rawToken.startsWith('r8-')));
+  // Check if token is present
+  const isTokenValid = Boolean(rawToken && rawToken.length > 3);
 
-  if (!isReplicateToken) {
-    throw new Error('REPLICATE_API_TOKEN is missing or invalid. Please check your backend .env file.');
+  if (!isTokenValid) {
+    throw new Error('AI API Key is missing. Please check REPLICATE_API_TOKEN or PIXVERSE_API_KEY in backend .env');
   }
 
   try {
@@ -88,6 +87,8 @@ export const generateRoomRedesign = async ({ file, imageUrl, roomType, style, cu
     if (!imageInput) {
       throw new Error('Valid room photo is required for AI redesign');
     }
+
+    const prompt = buildInteriorPrompt({ roomType, style, customInstruction });
 
     console.log(`Submitting Replicate AI Room Redesign job (${roomType} | ${style})...`);
 
