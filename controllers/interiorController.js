@@ -71,18 +71,15 @@ export const redesignRoom = async (req, res, next) => {
       success: true,
       imageUrl: redesignResult.generatedUrl,
       originalUrl: imageUrl,
-      notice: redesignResult.notice || null,
       data: {
         originalUrl: imageUrl,
         generatedUrl: redesignResult.generatedUrl,
         prompt: redesignResult.prompt,
         roomType: formattedRoomType,
         style: formattedStyle,
-        customInstruction: sanitizedInstruction,
-        isMock: redesignResult.isMock,
-        notice: redesignResult.notice || null
+        customInstruction: sanitizedInstruction
       },
-      message: redesignResult.notice || 'Room design generated successfully.'
+      message: 'Room design generated successfully.'
     });
   } catch (error) {
     console.error('Error in redesignRoom controller:', error);

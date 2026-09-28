@@ -1,6 +1,8 @@
 import Project from '../models/Project.js';
 import Enquiry from '../models/Enquiry.js';
 import Testimonial from '../models/Testimonial.js';
+import PopularItem from '../models/PopularItem.js';
+import Admin from '../models/Admin.js';
 
 // @desc    Get dashboard metrics & statistics
 // @route   GET /api/dashboard/stats
@@ -18,8 +20,12 @@ export const getDashboardStats = async (req, res) => {
       contactedEnquiries,
       closedEnquiries,
       totalTestimonials,
+      totalPopularItems,
+      totalClients,
+      totalAdmins,
       recentEnquiries,
-      recentProjects
+      recentProjects,
+      popularItemsSample
     ] = await Promise.all([
       Project.countDocuments(),
       Project.countDocuments({ category: 'living-room' }),
@@ -31,8 +37,12 @@ export const getDashboardStats = async (req, res) => {
       Enquiry.countDocuments({ status: 'Contacted' }),
       Enquiry.countDocuments({ status: 'Closed' }),
       Testimonial.countDocuments(),
-      Enquiry.find().sort({ createdAt: -1 }).limit(5),
-      Project.find().sort({ createdAt: -1 }).limit(5)
+      PopularItem.countDocuments(),
+      Admin.countDocuments({ role: 'client' }),
+      Admin.countDocuments({ role: { $in: ['admin', 'superadmin'] } }),
+      Enquiry.find().sort({ createdAt: -1 }).limit(10),
+      Project.find().sort({ createdAt: -1 }).limit(8),
+      PopularItem.find().sort({ createdAt: -1 }).limit(6)
     ]);
 
     res.json({
@@ -46,10 +56,14 @@ export const getDashboardStats = async (req, res) => {
         newEnquiries,
         contactedEnquiries,
         closedEnquiries,
-        totalTestimonials
+        totalTestimonials,
+        totalPopularItems,
+        totalClients,
+        totalAdmins
       },
       recentEnquiries,
-      recentProjects
+      recentProjects,
+      popularItemsSample
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

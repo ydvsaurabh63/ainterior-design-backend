@@ -16,52 +16,7 @@ const REPLICATE_MODEL_VERSION = 'adirik/interior-design:76604baddc85b1b4616e1c64
 
 
 
-const MOCK_REDESIGN_GALLERY = {
-  'Living Room': {
-    Modern: 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1200&q=80',
-    Luxury: 'https://images.unsplash.com/photo-1600566753376-12c8ab7fb75b?auto=format&fit=crop&w=1200&q=80',
-    Minimalist: 'https://images.unsplash.com/photo-1598928506311-c55ded91a20c?auto=format&fit=crop&w=1200&q=80',
-    Contemporary: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?auto=format&fit=crop&w=1200&q=80',
-    Scandinavian: 'https://images.unsplash.com/photo-1513694203232-719a280e022f?auto=format&fit=crop&w=1200&q=80',
-    Traditional: 'https://images.unsplash.com/photo-1616486338812-3dadae4b4ace?auto=format&fit=crop&w=1200&q=80',
-    Industrial: 'https://images.unsplash.com/photo-1505691938895-1758d7feb511?auto=format&fit=crop&w=1200&q=80'
-  },
-  Bedroom: {
-    Modern: 'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?auto=format&fit=crop&w=1200&q=80',
-    Luxury: 'https://images.unsplash.com/photo-1590490360182-c33d57733427?auto=format&fit=crop&w=1200&q=80',
-    Minimalist: 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=1200&q=80',
-    Contemporary: 'https://images.unsplash.com/photo-1540518614846-7ede433c5173?auto=format&fit=crop&w=1200&q=80',
-    Scandinavian: 'https://images.unsplash.com/photo-1595526114035-0d45ed16cfbf?auto=format&fit=crop&w=1200&q=80',
-    Traditional: 'https://images.unsplash.com/photo-1617325247661-675ab4b64ae2?auto=format&fit=crop&w=1200&q=80',
-    Industrial: 'https://images.unsplash.com/photo-1522771739844-6a9f6d5f14af?auto=format&fit=crop&w=1200&q=80'
-  },
-  Kitchen: {
-    Modern: 'https://images.unsplash.com/photo-1556911220-e15b29be8c8f?auto=format&fit=crop&w=1200&q=80',
-    Luxury: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
-    Minimalist: 'https://images.unsplash.com/photo-1556909212-d5b604d0c90d?auto=format&fit=crop&w=1200&q=80',
-    Contemporary: 'https://images.unsplash.com/photo-1507089947368-19c1da9775ae?auto=format&fit=crop&w=1200&q=80',
-    Scandinavian: 'https://images.unsplash.com/photo-1512917774080-9991f1c4c750?auto=format&fit=crop&w=1200&q=80',
-    Traditional: 'https://images.unsplash.com/photo-1565183997392-2f6f122e5912?auto=format&fit=crop&w=1200&q=80',
-    Industrial: 'https://images.unsplash.com/photo-1556909114-f6e7ad7d3136?auto=format&fit=crop&w=1200&q=80'
-  },
-  'Full Home': {
-    Modern: 'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
-    Luxury: 'https://images.unsplash.com/photo-1600596542815-ffad4c1539a9?auto=format&fit=crop&w=1200&q=80',
-    Minimalist: 'https://images.unsplash.com/photo-1600585152220-90363fe7e115?auto=format&fit=crop&w=1200&q=80',
-    Contemporary: 'https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?auto=format&fit=crop&w=1200&q=80',
-    Scandinavian: 'https://images.unsplash.com/photo-1600566753190-17f0baa2a6c3?auto=format&fit=crop&w=1200&q=80',
-    Traditional: 'https://images.unsplash.com/photo-1600573472591-ee6b68d14c68?auto=format&fit=crop&w=1200&q=80',
-    Industrial: 'https://images.unsplash.com/photo-1600585154526-990dced4db0d?auto=format&fit=crop&w=1200&q=80'
-  }
-};
 
-/**
- * Gets fallback mock design image when Replicate API token is unconfigured or fails
- */
-export const getFallbackRedesignImage = (roomType = 'Living Room', style = 'Modern') => {
-  const category = MOCK_REDESIGN_GALLERY[roomType] || MOCK_REDESIGN_GALLERY['Living Room'];
-  return category[style] || category['Modern'] || 'https://images.unsplash.com/photo-1600210492486-724fe5c67fb0?auto=format&fit=crop&w=1200&q=80';
-};
 
 /**
  * Dynamically builds the AI image generation prompt based on room specs & preservation instructions
@@ -109,14 +64,7 @@ export const generateRoomRedesign = async ({ file, imageUrl, roomType, style, cu
   const isReplicateToken = Boolean(rawToken && (rawToken.startsWith('r8_') || rawToken.startsWith('r8-')));
 
   if (!isReplicateToken) {
-    console.warn(`[AI Interior Service] REPLICATE_API_TOKEN is missing or invalid (tokens must start with 'r8_'). Using fallback mock redesign for ${roomType} (${style}).`);
-    return {
-      generatedUrl: getFallbackRedesignImage(roomType, style),
-      prompt,
-      roomType,
-      style,
-      isMock: true
-    };
+    throw new Error('REPLICATE_API_TOKEN is missing or invalid. Please check your backend .env file.');
   }
 
   try {
@@ -204,25 +152,11 @@ export const generateRoomRedesign = async ({ file, imageUrl, roomType, style, cu
       generatedUrl,
       prompt,
       roomType,
-      style,
-      isMock: false
+      style
     };
   } catch (error) {
-    const isCreditError = Boolean(error && error.message && (error.message.includes('402') || error.message.includes('credit')));
-    const errorNotice = isCreditError
-      ? 'Replicate account requires credits ($1-2) to process your uploaded room image with AI. Showing design preview.'
-      : 'AI redesign service unavailable. Showing design preview.';
-
-    console.warn(`[AI Interior Service] Replicate API call failed (${error.message || error}). ${errorNotice}`);
-
-    return {
-      generatedUrl: getFallbackRedesignImage(roomType, style),
-      prompt,
-      roomType,
-      style,
-      isMock: true,
-      notice: errorNotice
-    };
+    console.error(`[AI Interior Service] Replicate API call failed: ${error.message || error}`);
+    throw error;
   }
 };
 

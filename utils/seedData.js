@@ -1,11 +1,16 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import dns from 'dns';
 import Admin from '../models/Admin.js';
 import Project from '../models/Project.js';
 import Enquiry from '../models/Enquiry.js';
 import Testimonial from '../models/Testimonial.js';
 
 dotenv.config();
+
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (e) {}
 
 const sampleProjects = [
   // LIVING ROOM (4 Projects)

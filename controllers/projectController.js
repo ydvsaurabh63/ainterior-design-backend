@@ -1,4 +1,5 @@
 import Project from '../models/Project.js';
+import PopularItem from '../models/PopularItem.js';
 import { getUploadedFileUrl } from '../middleware/uploadMiddleware.js';
 
 // Helper to generate slug
@@ -140,20 +141,40 @@ export const createProject = async (req, res) => {
     const slug = createSlug(title || 'project');
 
     const project = new Project({
-      title,
+      title: title || 'Interior Design Project',
       slug,
-      category,
-      location,
-      area,
-      style,
-      description,
+      category: category || 'living-room',
+      location: location || 'Studio Showcase',
+      area: area || 'Custom Space',
+      style: style || 'Modern Interior',
+      description: description || '',
       materials: parsedMaterials,
       mainImage,
       galleryImages: galleryImages.length > 0 ? galleryImages : [mainImage],
-      featured: featured === 'true' || featured === true
+      featured: featured === undefined ? true : (featured === 'true' || featured === true)
     });
 
     const createdProject = await project.save();
+
+    // Automatically sync to PopularItem so the uploaded project immediately appears in "Popular items tried by customers"
+    try {
+      await PopularItem.create({
+        name: createdProject.title,
+        brand: 'Aura Studio',
+        time: 'Just now',
+        dimensions: createdProject.area || 'Custom Space',
+        price: 'Bespoke',
+        category: createdProject.category === 'living-room' ? 'Living Room' : createdProject.category,
+        image: createdProject.mainImage,
+        roomImage: createdProject.mainImage,
+        productUrl: `/projects/${createdProject.slug || createdProject._id}`,
+        isPopular: true,
+        order: -1
+      });
+    } catch (popErr) {
+      console.warn('Could not sync project to PopularItem:', popErr.message);
+    }
+
     res.status(201).json(createdProject);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -170,6 +191,8 @@ export const updateProject = async (req, res) => {
     if (!project) {
       return res.status(404).json({ message: 'Project not found' });
     }
+
+    const oldTitle = project.title;
 
     const {
       title,
@@ -189,7 +212,7 @@ export const updateProject = async (req, res) => {
     if (location) project.location = location;
     if (area) project.area = area;
     if (style) project.style = style;
-    if (description) project.description = description;
+    if (description !== undefined) project.description = description;
     if (featured !== undefined) {
       project.featured = featured === 'true' || featured === true;
     }
@@ -230,6 +253,22 @@ export const updateProject = async (req, res) => {
     }
 
     const updatedProject = await project.save();
+
+    // Sync updated info to PopularItem if exists
+    try {
+      await PopularItem.findOneAndUpdate(
+        { $or: [{ name: oldTitle }, { name: updatedProject.title }, { image: updatedProject.mainImage }] },
+        {
+          name: updatedProject.title,
+          image: updatedProject.mainImage,
+          roomImage: updatedProject.mainImage,
+          dimensions: updatedProject.area || 'Custom Space'
+        }
+      );
+    } catch (popErr) {
+      console.warn('Could not sync PopularItem update:', popErr.message);
+    }
+
     res.json(updatedProject);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -244,7 +283,16 @@ export const deleteProject = async (req, res) => {
     const project = await Project.findById(req.params.id);
 
     if (project) {
+      const projectTitle = project.title;
       await project.deleteOne();
+
+      // Clean up synced popular item if exists
+      try {
+        await PopularItem.deleteMany({ name: projectTitle });
+      } catch (err) {
+        console.warn('Could not delete synced popular item:', err.message);
+      }
+
       res.json({ message: 'Project removed successfully' });
     } else {
       res.status(404).json({ message: 'Project not found' });

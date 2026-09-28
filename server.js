@@ -10,6 +10,7 @@ import enquiryRoutes from './routes/enquiryRoutes.js';
 import testimonialRoutes from './routes/testimonialRoutes.js';
 import dashboardRoutes from './routes/dashboardRoutes.js';
 import interiorRoutes from './routes/interiorRoutes.js';
+import popularItemRoutes from './routes/popularItemRoutes.js';
 import { notFound, errorHandler } from './middleware/errorMiddleware.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -33,7 +34,7 @@ app.use(cors({
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
-// Static uploads folder for fallback image serving
+// Static uploads folder for image serving
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Health check endpoint
@@ -49,6 +50,7 @@ app.use('/api/testimonials', testimonialRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/interior', interiorRoutes);
 app.use('/api/redesign-room', interiorRoutes);
+app.use('/api/popular-items', popularItemRoutes);
 
 // Error Handling Middleware
 app.use(notFound);

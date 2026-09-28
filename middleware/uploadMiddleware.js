@@ -50,7 +50,7 @@ class CloudinaryUploadStreamStorage {
   }
 }
 
-// Ensure uploads folder exists as local fallback if Cloudinary is not configured
+// Ensure uploads folder exists when storing files locally
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
   try {
@@ -118,7 +118,7 @@ export const getUploadedFileUrl = (file, req) => {
   if (file.filename && (file.filename.startsWith('http://') || file.filename.startsWith('https://'))) {
     return file.filename;
   }
-  // Local disk fallback
+  // Local disk URL
   const host = req ? (req.protocol + '://' + req.get('host')) : '';
   return `${host}/uploads/${file.filename}`;
 };

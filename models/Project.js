@@ -16,7 +16,7 @@ const projectSchema = new mongoose.Schema(
     },
     category: {
       type: String,
-      required: [true, 'Category is required'],
+      default: 'living-room',
       enum: {
         values: ['living-room', 'bedroom', 'kitchen', 'full-home', 'furniture'],
         message: '{VALUE} is not a valid category'
@@ -24,22 +24,23 @@ const projectSchema = new mongoose.Schema(
     },
     location: {
       type: String,
-      required: [true, 'Location is required'],
+      default: 'Studio Project',
       trim: true
     },
     area: {
       type: String,
-      required: [true, 'Area/Size is required'],
+      default: 'Standard Area',
       trim: true
     },
     style: {
       type: String,
-      required: [true, 'Design style is required'],
+      default: 'Modern Interior',
       trim: true
     },
     description: {
       type: String,
-      required: [true, 'Description is required']
+      required: [true, 'Description is required'],
+      default: ''
     },
     materials: {
       type: [String],
