@@ -19,33 +19,39 @@ const VALID_DESIGN_STYLES = [
  */
 export const redesignRoom = async (req, res, next) => {
   try {
-    // 1. Image Validation
-    if (!req.file) {
+    const {
+      roomType = 'Living Room',
+      style = 'Modern',
+      designStyle = 'Modern',
+      productName = '',
+      productImageUrl = '',
+      customInstruction = '',
+      customPrompt = '',
+      imagePreviewUrl = ''
+    } = req.body;
+
+    let imageUrl = '';
+
+    // 1. Image Validation (from uploaded file or preview URL)
+    if (req.file) {
+      imageUrl = getUploadedFileUrl(req.file, req);
+    } else if (imagePreviewUrl && typeof imagePreviewUrl === 'string' && imagePreviewUrl.startsWith('http')) {
+      imageUrl = imagePreviewUrl;
+    } else if (imagePreviewUrl && typeof imagePreviewUrl === 'string' && imagePreviewUrl.startsWith('data:image/')) {
+      imageUrl = imagePreviewUrl;
+    }
+
+    if (!imageUrl && !req.file) {
       return res.status(400).json({
         success: false,
         message: 'No room photo uploaded. Please select a valid JPG, PNG, or WEBP image.'
       });
     }
 
-    const imageUrl = getUploadedFileUrl(req.file, req);
-    if (!imageUrl) {
-      return res.status(400).json({
-        success: false,
-        message: 'Failed to process uploaded image file.'
-      });
-    }
-
     // 2. Spec Validation
-    const {
-      roomType = 'Living Room',
-      style = 'Modern',
-      designStyle = 'Modern',
-      customInstruction = '',
-      customPrompt = ''
-    } = req.body;
-
     const selectedRoomType = (roomType || 'Living Room').trim();
     const selectedStyle = (style || designStyle || 'Modern').trim();
+    const selectedProductName = (productName || selectedStyle || '').trim();
     const selectedCustomPrompt = (customInstruction || customPrompt || '').trim();
 
     const formattedRoomType = VALID_ROOM_TYPES.find(
@@ -58,12 +64,14 @@ export const redesignRoom = async (req, res, next) => {
 
     const sanitizedInstruction = selectedCustomPrompt.slice(0, 500);
 
-    // 3. Call Replicate AI Service
+    // 3. Call PixVerse / Replicate AI Service
     const redesignResult = await generateRoomRedesign({
       file: req.file,
-      imageUrl,
+      imageUrl: imageUrl || getUploadedFileUrl(req.file, req),
       roomType: formattedRoomType,
       style: formattedStyle,
+      productName: selectedProductName,
+      productImageUrl: (productImageUrl || '').trim(),
       customInstruction: sanitizedInstruction
     });
 
@@ -77,6 +85,8 @@ export const redesignRoom = async (req, res, next) => {
         prompt: redesignResult.prompt,
         roomType: formattedRoomType,
         style: formattedStyle,
+        productName: selectedProductName,
+        productImageUrl,
         customInstruction: sanitizedInstruction
       },
       message: 'Room design generated successfully.'

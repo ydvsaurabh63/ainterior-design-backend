@@ -19,51 +19,44 @@ const REPLICATE_MODEL_VERSION = 'adirik/interior-design:76604baddc85b1b4616e1c64
 
 
 /**
- * Dynamically builds the AI image generation prompt based on room specs & preservation instructions
+ * Dynamically builds the AI image generation prompt based on room specs, selected product & preservation instructions
  */
-export const buildInteriorPrompt = ({ roomType, style, customInstruction }) => {
-  let prompt = `Redesign this existing ${roomType} in a ${style} interior design style.
+export const buildInteriorPrompt = ({ roomType, style, productName, productImageUrl, customInstruction }) => {
+  const activeProduct = productName || style || 'Luxury Interior Furniture';
+  let prompt = `Redesign this existing ${roomType} room by seamlessly placing and integrating the selected furniture object "${activeProduct}" into the room space.
 
-Preserve the original room's architecture, room dimensions, walls, windows, doors, floor structure, camera perspective and overall spatial layout.
+Preserve the original room's architecture, room dimensions, walls, windows, doors, floor structure, ceiling, camera perspective and overall spatial layout.
 
-Improve the interior by redesigning furniture, colors, materials, lighting, decorations, textures and styling according to the selected design style.
+Incorporate and render "${activeProduct}" naturally into the room with matching interior lighting, ambient shadows, realistic material textures, and proper spatial scaling.
 
-The result must look like a realistic professional interior design photograph.
+The result must look like a clean, photorealistic professional interior design photograph.
 
-Keep the room recognizable as the same original room.
+Keep the room recognizable as the exact same room structure.
+Do not alter structural walls or doors.`;
 
-Do not completely replace the architecture.
-
-Do not create an unrelated room.
-
-Do not add unrealistic objects.
-
-Maintain realistic proportions and perspective.
-
-Room Type:
-${roomType}
-
-Design Style:
-${style}`;
+  if (productImageUrl) {
+    prompt += `\n\nTarget Product Visual Reference: ${productImageUrl}`;
+  }
 
   if (customInstruction && customInstruction.trim()) {
-    prompt += `\n\nCustom User Requirements:\n${customInstruction.trim()}`;
+    prompt += `\n\nCustom Instructions:\n${customInstruction.trim()}`;
   }
 
   return prompt;
 };
 
 /**
- * Main service method to trigger AI Room Redesign via Replicate SDK
+ * Main service method to trigger AI Room Redesign via Replicate / PixVerse SDK
  */
-export const generateRoomRedesign = async ({ file, imageUrl, roomType, style, customInstruction }) => {
+export const generateRoomRedesign = async ({ file, imageUrl, roomType, style, productName, productImageUrl, customInstruction }) => {
   const rawToken = (process.env.PIXVERSE_API_KEY || process.env.REPLICATE_API_TOKEN || process.env.AI_API_KEY || '').trim();
+  const userId = (process.env.PIXVERSE_USER_ID || '').trim();
 
   // Check if token is present
   const isTokenValid = Boolean(rawToken && rawToken.length > 3);
 
   if (!isTokenValid) {
-    throw new Error('AI API Key is missing. Please check REPLICATE_API_TOKEN or PIXVERSE_API_KEY in backend .env');
+    throw new Error('AI API Key is missing. Please check PIXVERSE_API_KEY or REPLICATE_API_TOKEN in backend .env');
   }
 
   try {
@@ -88,9 +81,11 @@ export const generateRoomRedesign = async ({ file, imageUrl, roomType, style, cu
       throw new Error('Valid room photo is required for AI redesign');
     }
 
-    const prompt = buildInteriorPrompt({ roomType, style, customInstruction });
+    const targetProductName = productName || style || 'Selected Product';
+    const prompt = buildInteriorPrompt({ roomType, style, productName: targetProductName, productImageUrl, customInstruction });
 
-    console.log(`Submitting Replicate AI Room Redesign job (${roomType} | ${style})...`);
+    console.log(`Submitting AI Room Redesign job (${roomType} | Product: ${targetProductName} | PixVerse User ID: ${userId || 'Default'})...`);
+
 
     const output = await replicate.run(REPLICATE_MODEL_VERSION, {
       input: {
