@@ -1,5 +1,6 @@
 import CatalogItem from '../models/CatalogItem.js';
 import { initialCatalogData, ensureCatalogSeeded } from '../utils/seedCatalog.js';
+import { getUploadedFileUrl } from '../middleware/uploadMiddleware.js';
 
 /**
  * @desc    Get all catalog items with filtering & search
@@ -94,13 +95,30 @@ export const getCatalogItemById = async (req, res, next) => {
  */
 export const createCatalogItem = async (req, res, next) => {
   try {
-    const { name, clientCategory, objectCategory, description, brand, price, imageUrl } = req.body;
+    const {
+      name,
+      clientCategory,
+      objectCategory,
+      description,
+      brand,
+      price,
+      imageUrl,
+      stagedRoomImage
+    } = req.body;
 
     let finalImageUrl = imageUrl || '';
+    let finalStagedRoomImage = stagedRoomImage || '';
 
     // Handle file upload if attached via Multer / Cloudinary
-    if (req.file) {
-      finalImageUrl = req.file.path || req.file.secure_url || req.file.location;
+    if (req.files) {
+      if (req.files.image && req.files.image[0]) {
+        finalImageUrl = getUploadedFileUrl(req.files.image[0], req) || finalImageUrl;
+      }
+      if (req.files.stagedRoomImage && req.files.stagedRoomImage[0]) {
+        finalStagedRoomImage = getUploadedFileUrl(req.files.stagedRoomImage[0], req) || finalStagedRoomImage;
+      }
+    } else if (req.file) {
+      finalImageUrl = getUploadedFileUrl(req.file, req) || finalImageUrl;
     }
 
     if (!name || !clientCategory || !objectCategory) {
@@ -110,7 +128,7 @@ export const createCatalogItem = async (req, res, next) => {
 
     if (!finalImageUrl) {
       res.status(400);
-      throw new Error('Please upload an image or provide an image URL.');
+      throw new Error('Please upload a product image or provide a product image URL.');
     }
 
     const newItem = await CatalogItem.create({
@@ -118,6 +136,7 @@ export const createCatalogItem = async (req, res, next) => {
       clientCategory,
       objectCategory,
       imageUrl: finalImageUrl,
+      stagedRoomImage: finalStagedRoomImage,
       description: description || '',
       brand: brand || 'AURA Collection',
       price: price || '',
@@ -145,7 +164,16 @@ export const updateCatalogItem = async (req, res, next) => {
       throw new Error('Catalog item not found');
     }
 
-    const { name, clientCategory, objectCategory, description, brand, price, imageUrl } = req.body;
+    const {
+      name,
+      clientCategory,
+      objectCategory,
+      description,
+      brand,
+      price,
+      imageUrl,
+      stagedRoomImage
+    } = req.body;
 
     if (name) item.name = name;
     if (clientCategory) item.clientCategory = clientCategory;
@@ -154,11 +182,19 @@ export const updateCatalogItem = async (req, res, next) => {
     if (brand !== undefined) item.brand = brand;
     if (price !== undefined) item.price = price;
 
-    if (req.file) {
-      item.imageUrl = req.file.path || req.file.secure_url || req.file.location;
-    } else if (imageUrl) {
-      item.imageUrl = imageUrl;
+    if (req.files) {
+      if (req.files.image && req.files.image[0]) {
+        item.imageUrl = getUploadedFileUrl(req.files.image[0], req) || item.imageUrl;
+      }
+      if (req.files.stagedRoomImage && req.files.stagedRoomImage[0]) {
+        item.stagedRoomImage = getUploadedFileUrl(req.files.stagedRoomImage[0], req) || item.stagedRoomImage;
+      }
+    } else if (req.file) {
+      item.imageUrl = getUploadedFileUrl(req.file, req) || item.imageUrl;
     }
+
+    if (imageUrl) item.imageUrl = imageUrl;
+    if (stagedRoomImage !== undefined) item.stagedRoomImage = stagedRoomImage;
 
     const updatedItem = await item.save();
     res.json(updatedItem);

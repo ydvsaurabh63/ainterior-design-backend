@@ -21,6 +21,11 @@ const catalogItemSchema = new mongoose.Schema(
       type: String,
       required: [true, 'Catalog image URL is required']
     },
+    stagedRoomImage: {
+      type: String,
+      default: '',
+      trim: true
+    },
     description: {
       type: String,
       trim: true,

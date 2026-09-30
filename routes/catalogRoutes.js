@@ -16,11 +16,16 @@ router.get('/', getCatalogItems);
 router.get('/:id', getCatalogItemById);
 
 // Protected Admin / Superadmin catalog routes
+const catalogUpload = upload.fields([
+  { name: 'image', maxCount: 1 },
+  { name: 'stagedRoomImage', maxCount: 1 }
+]);
+
 router.post(
   '/',
   protect,
   authorize('superadmin', 'admin'),
-  upload.single('image'),
+  catalogUpload,
   createCatalogItem
 );
 
@@ -28,7 +33,7 @@ router.put(
   '/:id',
   protect,
   authorize('superadmin', 'admin'),
-  upload.single('image'),
+  catalogUpload,
   updateCatalogItem
 );
 
