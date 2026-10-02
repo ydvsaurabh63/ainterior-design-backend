@@ -1,20 +1,20 @@
 import CatalogItem from '../models/CatalogItem.js';
-import { initialCatalogData, ensureCatalogSeeded } from '../utils/seedCatalog.js';
 import { getUploadedFileUrl } from '../middleware/uploadMiddleware.js';
 
 /**
- * @desc    Get all catalog items with filtering & search
+ * @desc    Get all catalog items with filtering & search (Only admin-added products)
  * @route   GET /api/catalog
  * @access  Public
  */
 export const getCatalogItems = async (req, res, next) => {
   try {
-    // Seed default catalog if empty on initial query
-    await ensureCatalogSeeded();
+    const { clientCategory, objectCategory, search, limit = 1000 } = req.query;
 
-    const { clientCategory, objectCategory, search, limit = 100 } = req.query;
-
-    let query = { section: 'catalog' };
+    // Only fetch catalog items created by admin
+    let query = {
+      section: 'catalog',
+      createdBy: { $ne: null }
+    };
 
     // Filter by client category
     if (clientCategory && clientCategory !== 'all') {
@@ -42,30 +42,10 @@ export const getCatalogItems = async (req, res, next) => {
       .sort({ createdAt: -1 })
       .limit(Number(limit));
 
-    // Fallback filter if DB connection cold start returned empty array
-    if (items.length === 0 && (!search || search.trim() === '')) {
-      let filteredFallback = initialCatalogData;
-      if (clientCategory && clientCategory !== 'all') {
-        filteredFallback = filteredFallback.filter((i) => i.clientCategory === clientCategory);
-      }
-      if (objectCategory && objectCategory !== 'all') {
-        filteredFallback = filteredFallback.filter((i) => i.objectCategory === objectCategory);
-      }
-      return res.json(filteredFallback);
-    }
-
-    res.json(items);
+    res.json(items || []);
   } catch (error) {
     console.warn('Backend Catalog Query Notice:', error.message);
-    // Fallback response so frontend never crashes
-    let filteredFallback = initialCatalogData;
-    if (req.query.clientCategory && req.query.clientCategory !== 'all') {
-      filteredFallback = filteredFallback.filter((i) => i.clientCategory === req.query.clientCategory);
-    }
-    if (req.query.objectCategory && req.query.objectCategory !== 'all') {
-      filteredFallback = filteredFallback.filter((i) => i.objectCategory === req.query.objectCategory);
-    }
-    res.json(filteredFallback);
+    res.json([]);
   }
 };
 
@@ -76,15 +56,16 @@ export const getCatalogItems = async (req, res, next) => {
  */
 export const getCatalogItemById = async (req, res, next) => {
   try {
-    const item = await CatalogItem.findById(req.params.id);
+    const item = await CatalogItem.findOne({
+      _id: req.params.id,
+      createdBy: { $ne: null }
+    });
     if (!item) {
-      const fallbackItem = initialCatalogData.find((i) => i._id === req.params.id) || initialCatalogData[0];
-      return res.json(fallbackItem);
+      return res.status(404).json({ message: 'Catalog item not found' });
     }
     res.json(item);
   } catch (error) {
-    const fallbackItem = initialCatalogData[0];
-    res.json(fallbackItem);
+    res.status(404).json({ message: 'Catalog item not found' });
   }
 };
 

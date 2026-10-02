@@ -574,29 +574,7 @@ export const initialCatalogData = [
   }
 ];
 
-let isSeedingInProgress = false;
-
+// Auto-seeding disabled to ensure ONLY admin-added products appear in the catalog
 export const ensureCatalogSeeded = async () => {
-  if (isSeedingInProgress) return;
-  try {
-    isSeedingInProgress = true;
-    const count = await CatalogItem.countDocuments({ section: 'catalog' });
-    if (count === 0) {
-      console.log('Seeding initial Catalog items for all client categories...');
-      await CatalogItem.insertMany(initialCatalogData);
-      console.log('Catalog items successfully seeded in database.');
-    } else {
-      // Check if Popular items category exists, if not insert seed popular items
-      const popularCount = await CatalogItem.countDocuments({ clientCategory: 'Popular items tried by customers' });
-      if (popularCount === 0) {
-        const popularItems = initialCatalogData.filter(i => i.clientCategory === 'Popular items tried by customers');
-        await CatalogItem.insertMany(popularItems);
-        console.log('Seeded popular items category in database.');
-      }
-    }
-  } catch (error) {
-    console.warn('Note on Catalog seeding:', error.message);
-  } finally {
-    isSeedingInProgress = false;
-  }
+  return;
 };
