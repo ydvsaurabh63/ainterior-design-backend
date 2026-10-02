@@ -11,14 +11,19 @@ export const getPopularItems = async (req, res) => {
   try {
     await ensurePopularItemsSeeded();
 
-    const items = await PopularItem.find({ isPopular: true }).sort({ order: 1, createdAt: -1 });
+    const items = await PopularItem.find({
+      isPopular: true,
+      createdBy: { $ne: null },
+      image: { $not: /unsplash\.com/i }
+    }).sort({ order: 1, createdAt: -1 });
 
     // Fetch catalog items added under 'Popular items tried by customers'
     let catalogPopularItems = [];
     try {
       const catItems = await CatalogItem.find({
         clientCategory: 'Popular items tried by customers',
-        createdBy: { $ne: null }
+        createdBy: { $ne: null },
+        imageUrl: { $not: /unsplash\.com/i }
       }).sort({ createdAt: -1 });
 
       catalogPopularItems = catItems.map((item) => ({
@@ -44,7 +49,9 @@ export const getPopularItems = async (req, res) => {
     // Also fetch uploaded projects to guarantee any uploaded project appears immediately
     let projects = [];
     try {
-      projects = await Project.find({ mainImage: { $exists: true, $ne: '' } }).sort({ createdAt: -1 });
+      projects = await Project.find({
+        mainImage: { $exists: true, $ne: '', $not: /unsplash\.com/i }
+      }).sort({ createdAt: -1 });
     } catch (e) {
       console.warn('Could not fetch projects in getPopularItems:', e.message);
     }
@@ -76,20 +83,17 @@ export const getPopularItems = async (req, res) => {
     const combined = [];
     for (const item of rawCombined) {
       const normName = (item.name || '').toLowerCase().trim();
-      if (normName && !seen.has(normName)) {
+      const img = item.image || item.imageUrl || '';
+      if (normName && !seen.has(normName) && !img.includes('unsplash.com')) {
         seen.add(normName);
         combined.push(item);
       }
     }
 
-    if (combined.length === 0) {
-      return res.json(initialPopularItems);
-    }
-
     res.json(combined);
   } catch (error) {
     console.error('Error in getPopularItems:', error);
-    res.json(initialPopularItems);
+    res.json([]);
   }
 };
 
