@@ -77,15 +77,14 @@ export const getPopularItems = async (req, res) => {
         order: -1
       }));
 
-    // Combine: Catalog Popular Items first, then project items, then database items
-    const rawCombined = [...catalogPopularItems, ...projectItems, ...items];
-    const seen = new Set();
+    // Combine: Catalog Popular Items first, then database items, then project items
+    const rawCombined = [...catalogPopularItems, ...items, ...projectItems];
+    const seenImages = new Set();
     const combined = [];
     for (const item of rawCombined) {
-      const normName = (item.name || '').toLowerCase().trim();
-      const img = item.image || item.imageUrl || '';
-      if (normName && !seen.has(normName) && !img.includes('unsplash.com')) {
-        seen.add(normName);
+      const img = (item.image || item.imageUrl || '').trim();
+      if (img && !seenImages.has(img) && !img.includes('unsplash.com')) {
+        seenImages.add(img);
         combined.push(item);
       }
     }
@@ -102,10 +101,10 @@ export const getPopularItems = async (req, res) => {
 // @access  Private (superadmin, admin)
 export const getAllItemsAdmin = async (req, res) => {
   try {
-    await ensurePopularItemsSeeded();
-
     const { search, category, status } = req.query;
-    let query = {};
+    let query = {
+      image: { $not: /unsplash\.com/i }
+    };
 
     if (search && search.trim()) {
       query.$or = [
