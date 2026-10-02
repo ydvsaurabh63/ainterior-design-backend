@@ -1,5 +1,6 @@
 import PopularItem from '../models/PopularItem.js';
 import Project from '../models/Project.js';
+import CatalogItem from '../models/CatalogItem.js';
 import { getUploadedFileUrl } from '../middleware/uploadMiddleware.js';
 import { ensurePopularItemsSeeded, initialPopularItems } from '../utils/seedPopularItems.js';
 
@@ -11,6 +12,34 @@ export const getPopularItems = async (req, res) => {
     await ensurePopularItemsSeeded();
 
     const items = await PopularItem.find({ isPopular: true }).sort({ order: 1, createdAt: -1 });
+
+    // Fetch catalog items added under 'Popular items tried by customers'
+    let catalogPopularItems = [];
+    try {
+      const catItems = await CatalogItem.find({
+        clientCategory: 'Popular items tried by customers',
+        createdBy: { $ne: null }
+      }).sort({ createdAt: -1 });
+
+      catalogPopularItems = catItems.map((item) => ({
+        _id: item._id,
+        name: item.name,
+        brand: item.brand || 'Aura Studio',
+        time: 'Just now',
+        dimensions: item.objectCategory || item.price || 'Featured',
+        price: item.price || 'Featured',
+        category: item.objectCategory || 'Popular items tried by customers',
+        image: item.imageUrl,
+        imageUrl: item.imageUrl,
+        roomImage: item.stagedRoomImage || item.imageUrl,
+        stagedRoomImage: item.stagedRoomImage || item.imageUrl,
+        productUrl: `/contact`,
+        isPopular: true,
+        order: -2
+      }));
+    } catch (e) {
+      console.warn('Could not fetch catalog popular items in getPopularItems:', e.message);
+    }
 
     // Also fetch uploaded projects to guarantee any uploaded project appears immediately
     let projects = [];
@@ -33,13 +62,25 @@ export const getPopularItems = async (req, res) => {
         price: 'Featured',
         category: p.category === 'living-room' ? 'Living Room' : (p.category || 'Portfolio'),
         image: p.mainImage,
+        imageUrl: p.mainImage,
         roomImage: p.mainImage,
+        stagedRoomImage: p.mainImage,
         productUrl: `/projects/${p.slug || p._id}`,
         isPopular: true,
         order: -1
       }));
 
-    const combined = [...projectItems, ...items];
+    // Combine: Catalog Popular Items first, then project items, then database items
+    const rawCombined = [...catalogPopularItems, ...projectItems, ...items];
+    const seen = new Set();
+    const combined = [];
+    for (const item of rawCombined) {
+      const normName = (item.name || '').toLowerCase().trim();
+      if (normName && !seen.has(normName)) {
+        seen.add(normName);
+        combined.push(item);
+      }
+    }
 
     if (combined.length === 0) {
       return res.json(initialPopularItems);

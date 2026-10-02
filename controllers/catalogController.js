@@ -1,4 +1,5 @@
 import CatalogItem from '../models/CatalogItem.js';
+import PopularItem from '../models/PopularItem.js';
 import { getUploadedFileUrl } from '../middleware/uploadMiddleware.js';
 
 /**
@@ -125,6 +126,28 @@ export const createCatalogItem = async (req, res, next) => {
       createdBy: req.user ? req.user._id : null
     });
 
+    // Auto-sync to PopularItem if added under "Popular items tried by customers"
+    if (clientCategory === 'Popular items tried by customers') {
+      try {
+        await PopularItem.create({
+          name,
+          brand: brand || 'AURA Collection',
+          time: 'Just now',
+          dimensions: objectCategory || 'Featured Space',
+          price: price || 'Featured',
+          category: objectCategory || 'Popular Try-On',
+          image: finalImageUrl,
+          roomImage: finalStagedRoomImage || finalImageUrl,
+          productUrl: '/contact',
+          isPopular: true,
+          order: -10,
+          createdBy: req.user ? req.user._id : null
+        });
+      } catch (syncErr) {
+        console.warn('Sync to PopularItem on create warning:', syncErr.message);
+      }
+    }
+
     res.status(201).json(newItem);
   } catch (error) {
     next(error);
@@ -145,6 +168,7 @@ export const updateCatalogItem = async (req, res, next) => {
       throw new Error('Catalog item not found');
     }
 
+    const prevName = item.name;
     const {
       name,
       clientCategory,
@@ -178,6 +202,28 @@ export const updateCatalogItem = async (req, res, next) => {
     if (stagedRoomImage !== undefined) item.stagedRoomImage = stagedRoomImage;
 
     const updatedItem = await item.save();
+
+    // Auto-sync updates to PopularItem if in 'Popular items tried by customers'
+    if (updatedItem.clientCategory === 'Popular items tried by customers') {
+      try {
+        await PopularItem.findOneAndUpdate(
+          { $or: [{ name: prevName }, { name: updatedItem.name }] },
+          {
+            name: updatedItem.name,
+            brand: updatedItem.brand || 'AURA Collection',
+            dimensions: updatedItem.objectCategory || 'Featured Space',
+            price: updatedItem.price || 'Featured',
+            image: updatedItem.imageUrl,
+            roomImage: updatedItem.stagedRoomImage || updatedItem.imageUrl,
+            isPopular: true
+          },
+          { upsert: true, new: true }
+        );
+      } catch (syncErr) {
+        console.warn('Sync to PopularItem on update warning:', syncErr.message);
+      }
+    }
+
     res.json(updatedItem);
   } catch (error) {
     next(error);
@@ -196,6 +242,14 @@ export const deleteCatalogItem = async (req, res, next) => {
     if (!item) {
       res.status(404);
       throw new Error('Catalog item not found');
+    }
+
+    if (item.clientCategory === 'Popular items tried by customers') {
+      try {
+        await PopularItem.deleteOne({ name: item.name });
+      } catch (syncErr) {
+        console.warn('Sync to PopularItem on delete warning:', syncErr.message);
+      }
     }
 
     await item.deleteOne();
