@@ -19,7 +19,26 @@ export const getProjects = async (req, res) => {
     const filter = {};
 
     if (category && category !== 'all') {
-      filter.category = category;
+      const sectorToCategoryMap = {
+        'furniture-manufacturers-dealers': ['furniture', 'furniture-manufacturers-dealers'],
+        'modular-kitchen-wardrobe-companies': ['kitchen', 'modular-kitchen-wardrobe-companies'],
+        'interior-design-companies-designers': ['full-home', 'interior-design-companies-designers'],
+        'real-estate-developers-builders': ['living-room', 'real-estate-developers-builders'],
+        'home-decor-tiles-flooring': ['bedroom', 'home-decor-tiles-flooring']
+      };
+
+      if (sectorToCategoryMap[category]) {
+        filter.$or = [
+          { category: { $in: sectorToCategoryMap[category] } },
+          { clientCategory: category },
+          { clientCategory: { $regex: category.replace(/-/g, ' '), $options: 'i' } }
+        ];
+      } else {
+        filter.$or = [
+          { category: category },
+          { clientCategory: category }
+        ];
+      }
     }
 
     if (featured === 'true') {

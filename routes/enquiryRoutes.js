@@ -11,10 +11,10 @@ const router = express.Router();
 
 router.route('/')
   .post(createEnquiry)
-  .get(protect, authorize('superadmin', 'admin'), getEnquiries);
+  .get(protect, authorize('superadmin', 'admin', 'client'), getEnquiries);
 
 router.route('/:id')
-  .put(protect, authorize('superadmin', 'admin'), updateEnquiryStatus)
+  .put(protect, authorize('superadmin', 'admin', 'client'), updateEnquiryStatus)
   .delete(protect, authorize('superadmin', 'admin'), deleteEnquiry);
 
 export default router;

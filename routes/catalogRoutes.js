@@ -24,7 +24,7 @@ const catalogUpload = upload.fields([
 router.post(
   '/',
   protect,
-  authorize('superadmin', 'admin'),
+  authorize('superadmin', 'admin', 'client'),
   catalogUpload,
   createCatalogItem
 );
@@ -32,7 +32,7 @@ router.post(
 router.put(
   '/:id',
   protect,
-  authorize('superadmin', 'admin'),
+  authorize('superadmin', 'admin', 'client'),
   catalogUpload,
   updateCatalogItem
 );
@@ -40,7 +40,7 @@ router.put(
 router.delete(
   '/:id',
   protect,
-  authorize('superadmin', 'admin'),
+  authorize('superadmin', 'admin', 'client'),
   deleteCatalogItem
 );
 

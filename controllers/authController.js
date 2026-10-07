@@ -1,6 +1,7 @@
 import Admin from '../models/Admin.js';
 import Enquiry from '../models/Enquiry.js';
 import Project from '../models/Project.js';
+import CatalogItem from '../models/CatalogItem.js';
 import generateToken from '../utils/generateToken.js';
 
 // @desc    Auth user (Superadmin, Admin, Client) & get token
@@ -30,6 +31,9 @@ export const authAdmin = async (req, res) => {
         role: user.role || 'admin',
         status: user.status || 'active',
         phone: user.phone || '',
+        companyName: user.companyName || '',
+        categories: user.categories || [],
+        assignedCategory: user.assignedCategory || '',
         token: generateToken(user._id)
       });
     } else {
@@ -56,46 +60,147 @@ export const getAdminProfile = async (req, res) => {
   }
 };
 
-// @desc    Get all users (Superadmin sees all, Admin sees clients only)
+// @desc    Get all users (Superadmin sees all, Admin sees their clients, Client sees their team)
 // @route   GET /api/auth/users
-// @access  Private (Superadmin, Admin)
+// @access  Private (Superadmin, Admin, Client)
 export const getUsers = async (req, res) => {
   try {
     const currentRole = req.admin.role || 'admin';
-    const { role, search } = req.query;
+    const { role, search, adminId, category } = req.query;
 
     let query = {};
 
     // Role filtering security
-    if (currentRole === 'admin') {
-      // Admin is only allowed to see client accounts
-      query.role = 'client';
-    } else if (role && role !== 'all') {
-      query.role = role;
+    if (currentRole === 'superadmin') {
+      if (role && role !== 'all') {
+        query.role = role;
+      }
+      // Superadmin can filter clients by a specific parent admin
+      if (adminId && adminId !== 'all') {
+        query.$or = [{ parentAdminId: adminId }, { createdById: adminId }];
+      }
+    } else if (currentRole === 'admin') {
+      // Admin is only allowed to see their own clients or users
+      query.role = { $in: ['client', 'user'] };
+      if (role && ['client', 'user'].includes(role)) {
+        query.role = role;
+      }
+      query.$or = [
+        { parentAdminId: req.admin._id },
+        { createdById: req.admin._id }
+      ];
+    } else if (currentRole === 'client') {
+      // Client is allowed to see and manage their own category users
+      query.role = 'user';
+      const clientCats = Array.isArray(req.admin.categories) && req.admin.categories.length > 0
+        ? req.admin.categories
+        : (req.admin.assignedCategory ? [req.admin.assignedCategory] : []);
+
+      const clientScopedConditions = [
+        { parentAdminId: req.admin._id },
+        { createdById: req.admin._id }
+      ];
+      if (clientCats.length > 0) {
+        clientScopedConditions.push({ categories: { $in: clientCats } });
+        clientScopedConditions.push({ assignedCategory: { $in: clientCats } });
+      }
+      query.$or = clientScopedConditions;
+    } else {
+      query.role = 'user';
+      query.parentAdminId = req.admin._id;
+    }
+
+    // Dynamic Category filter
+    if (category && category !== 'all') {
+      const catCondition = {
+        $or: [
+          { categories: category },
+          { assignedCategory: category }
+        ]
+      };
+      if (query.$and) {
+        query.$and.push(catCondition);
+      } else if (query.$or) {
+        query.$and = [{ $or: query.$or }, catCondition];
+        delete query.$or;
+      } else {
+        query.$or = [{ categories: category }, { assignedCategory: category }];
+      }
     }
 
     if (search && search.trim()) {
-      query.$or = [
-        { name: { $regex: search.trim(), $options: 'i' } },
-        { email: { $regex: search.trim(), $options: 'i' } },
-        { phone: { $regex: search.trim(), $options: 'i' } }
+      const searchRegex = { $regex: search.trim(), $options: 'i' };
+      const searchConditions = [
+        { name: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { companyName: searchRegex }
       ];
+      if (query.$or) {
+        query.$and = [{ $or: query.$or }, { $or: searchConditions }];
+        delete query.$or;
+      } else {
+        query.$or = searchConditions;
+      }
     }
 
-    const users = await Admin.find(query).select('-password').sort({ createdAt: -1 });
+    const users = await Admin.find(query)
+      .select('-password')
+      .populate('parentAdminId', 'name email role companyName')
+      .populate('createdById', 'name email role')
+      .sort({ createdAt: -1 });
+
     res.json(users);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// @desc    Create new user (Admin can only create Client; Superadmin can create any)
+// @desc    Get list of Admins (for dropdown assignment by Superadmin)
+// @route   GET /api/auth/admins-list
+// @access  Private (Superadmin)
+export const getAdminsList = async (req, res) => {
+  try {
+    const admins = await Admin.find({ role: { $in: ['admin', 'superadmin'] } })
+      .select('_id name email role companyName phone')
+      .sort({ name: 1 });
+
+    const adminsWithClientCounts = await Promise.all(
+      admins.map(async (adm) => {
+        const clientCount = await Admin.countDocuments({
+          role: 'client',
+          $or: [{ parentAdminId: adm._id }, { createdById: adm._id }]
+        });
+        return {
+          ...adm.toObject(),
+          clientCount
+        };
+      })
+    );
+
+    res.json(adminsWithClientCounts);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Create new user (Superadmin can create Admin/Client/User; Admin can create Client/User; Client can create User)
 // @route   POST /api/auth/users
-// @access  Private (Superadmin, Admin)
+// @access  Private (Superadmin, Admin, Client)
 export const createUser = async (req, res) => {
   try {
     const currentRole = req.admin.role || 'admin';
-    const { name, email, password, role = 'client', phone = '' } = req.body;
+    const {
+      name,
+      email,
+      password,
+      role = 'client',
+      phone = '',
+      companyName = '',
+      parentAdminId,
+      categories = [],
+      assignedCategory = ''
+    } = req.body;
 
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email, and password are required' });
@@ -105,12 +210,47 @@ export const createUser = async (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 6 characters long' });
     }
 
+    // Normalize categories array (supports 1, 2, or multiple categories dynamically)
+    let finalCategories = Array.isArray(categories)
+      ? categories.filter((c) => typeof c === 'string' && c.trim() !== '').map((c) => c.trim())
+      : [];
+    if (assignedCategory && typeof assignedCategory === 'string' && assignedCategory.trim()) {
+      const cleanAssigned = assignedCategory.trim();
+      if (!finalCategories.includes(cleanAssigned)) {
+        finalCategories.push(cleanAssigned);
+      }
+    }
+    const finalAssignedCategory = finalCategories[0] || (typeof assignedCategory === 'string' ? assignedCategory.trim() : '');
+
     // Role permission check
     let targetRole = role;
+    let assignedParentAdminId = null;
+
     if (currentRole === 'admin') {
-      targetRole = 'client'; // Force client role for standard admin
-    } else if (!['superadmin', 'admin', 'client'].includes(targetRole)) {
-      targetRole = 'client';
+      targetRole = role === 'user' ? 'user' : 'client'; // Force client or user for standard admin
+      assignedParentAdminId = req.admin._id;
+    } else if (currentRole === 'superadmin') {
+      if (targetRole === 'superadmin') {
+        return res.status(400).json({ message: 'Creating additional Superadmins is disabled for security' });
+      }
+      if (!['admin', 'client', 'user'].includes(targetRole)) {
+        targetRole = 'client';
+      }
+      if (targetRole === 'client' && parentAdminId) {
+        assignedParentAdminId = parentAdminId;
+      }
+    } else if (currentRole === 'client') {
+      // Client is creating an end-user / customer account under their workspace
+      targetRole = 'user';
+      assignedParentAdminId = req.admin._id;
+      // Inherit client categories if not explicitly set
+      if (finalCategories.length === 0) {
+        finalCategories = Array.isArray(req.admin.categories) && req.admin.categories.length > 0
+          ? [...req.admin.categories]
+          : (req.admin.assignedCategory ? [req.admin.assignedCategory] : []);
+      }
+    } else {
+      return res.status(403).json({ message: 'Unauthorized to create accounts' });
     }
 
     // Check if email already registered
@@ -125,12 +265,20 @@ export const createUser = async (req, res) => {
       password,
       role: targetRole,
       status: 'active',
-      phone
+      phone,
+      companyName: companyName || '',
+      categories: finalCategories,
+      assignedCategory: finalAssignedCategory,
+      createdById: req.admin._id,
+      parentAdminId: assignedParentAdminId
     });
 
     await newUser.save();
 
-    const created = await Admin.findById(newUser._id).select('-password');
+    const created = await Admin.findById(newUser._id)
+      .select('-password')
+      .populate('parentAdminId', 'name email role companyName')
+      .populate('createdById', 'name email role');
     res.status(201).json(created);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -139,7 +287,7 @@ export const createUser = async (req, res) => {
 
 // @desc    Update user details & status
 // @route   PUT /api/auth/users/:id
-// @access  Private (Superadmin, Admin)
+// @access  Private (Superadmin, Admin, Client)
 export const updateUser = async (req, res) => {
   try {
     const currentRole = req.admin.role || 'admin';
@@ -149,12 +297,41 @@ export const updateUser = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Permission check: Admin can only modify Clients
-    if (currentRole === 'admin' && targetUser.role !== 'client') {
-      return res.status(403).json({ message: 'Admins can only manage Client accounts' });
+    // Permission check: Admin / Client scoping
+    if (currentRole === 'admin') {
+      const isSelf = targetUser._id.toString() === req.admin._id.toString();
+      const isTheirClient =
+        (targetUser.role === 'client' || targetUser.role === 'user') &&
+        (targetUser.parentAdminId?.toString() === req.admin._id.toString() ||
+          targetUser.createdById?.toString() === req.admin._id.toString());
+
+      if (!isTheirClient && !isSelf) {
+        return res.status(403).json({ message: 'Admins can only manage their own Client/User accounts' });
+      }
+    } else if (currentRole === 'client') {
+      const isSelf = targetUser._id.toString() === req.admin._id.toString();
+      const isTheirUser =
+        targetUser.role === 'user' &&
+        (targetUser.parentAdminId?.toString() === req.admin._id.toString() ||
+          targetUser.createdById?.toString() === req.admin._id.toString());
+
+      if (!isTheirUser && !isSelf) {
+        return res.status(403).json({ message: 'Clients can only manage their own User accounts' });
+      }
     }
 
-    const { name, email, role, status, phone, password } = req.body;
+    const {
+      name,
+      email,
+      role,
+      status,
+      phone,
+      companyName,
+      parentAdminId,
+      password,
+      categories,
+      assignedCategory
+    } = req.body;
 
     // Guard: Prevent demoting/deactivating oneself if last superadmin
     if (targetUser._id.toString() === req.admin._id.toString()) {
@@ -168,6 +345,7 @@ export const updateUser = async (req, res) => {
 
     if (name) targetUser.name = name;
     if (phone !== undefined) targetUser.phone = phone;
+    if (companyName !== undefined) targetUser.companyName = companyName;
 
     if (email && email.toLowerCase() !== targetUser.email) {
       const emailTaken = await Admin.findOne({
@@ -180,10 +358,30 @@ export const updateUser = async (req, res) => {
       targetUser.email = email.toLowerCase();
     }
 
-    // Role assignment logic
+    // Role assignment logic (Superadmin only)
     if (role && currentRole === 'superadmin') {
-      if (['superadmin', 'admin', 'client'].includes(role)) {
+      if (['superadmin', 'admin', 'client', 'user'].includes(role)) {
         targetUser.role = role;
+      }
+    }
+
+    // Reassign parent admin (Superadmin only)
+    if (currentRole === 'superadmin' && parentAdminId !== undefined) {
+      targetUser.parentAdminId = parentAdminId || null;
+    }
+
+    // Update dynamic categories (Superadmin or Admin)
+    if (categories !== undefined) {
+      const normCats = Array.isArray(categories)
+        ? categories.filter((c) => typeof c === 'string' && c.trim() !== '').map((c) => c.trim())
+        : [];
+      targetUser.categories = normCats;
+      targetUser.assignedCategory = normCats[0] || '';
+    } else if (assignedCategory !== undefined) {
+      const cleanAssigned = typeof assignedCategory === 'string' ? assignedCategory.trim() : '';
+      targetUser.assignedCategory = cleanAssigned;
+      if (cleanAssigned && !targetUser.categories.includes(cleanAssigned)) {
+        targetUser.categories.push(cleanAssigned);
       }
     }
 
@@ -197,7 +395,10 @@ export const updateUser = async (req, res) => {
 
     await targetUser.save();
 
-    const updated = await Admin.findById(targetUser._id).select('-password');
+    const updated = await Admin.findById(targetUser._id)
+      .select('-password')
+      .populate('parentAdminId', 'name email role companyName')
+      .populate('createdById', 'name email role');
     res.json(updated);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -206,9 +407,10 @@ export const updateUser = async (req, res) => {
 
 // @desc    Delete user
 // @route   DELETE /api/auth/users/:id
-// @access  Private (Superadmin only)
+// @access  Private (Superadmin, Admin, Client)
 export const deleteUser = async (req, res) => {
   try {
+    const currentRole = req.admin.role || 'admin';
     const targetUser = await Admin.findById(req.params.id);
 
     if (!targetUser) {
@@ -217,6 +419,27 @@ export const deleteUser = async (req, res) => {
 
     if (targetUser._id.toString() === req.admin._id.toString()) {
       return res.status(400).json({ message: 'You cannot delete your own account' });
+    }
+
+    // Admin can delete their own client/user
+    if (currentRole === 'admin') {
+      const isTheirClient =
+        (targetUser.role === 'client' || targetUser.role === 'user') &&
+        (targetUser.parentAdminId?.toString() === req.admin._id.toString() ||
+          targetUser.createdById?.toString() === req.admin._id.toString());
+
+      if (!isTheirClient) {
+        return res.status(403).json({ message: 'You can only delete your own Client/User accounts' });
+      }
+    } else if (currentRole === 'client') {
+      const isTheirUser =
+        targetUser.role === 'user' &&
+        (targetUser.parentAdminId?.toString() === req.admin._id.toString() ||
+          targetUser.createdById?.toString() === req.admin._id.toString());
+
+      if (!isTheirUser) {
+        return res.status(403).json({ message: 'Clients can only delete their own User accounts' });
+      }
     }
 
     if (targetUser.role === 'superadmin') {
@@ -233,31 +456,112 @@ export const deleteUser = async (req, res) => {
   }
 };
 
-// @desc    Get Client Overview (inquiries and portfolio preview for logged in client)
+// @desc    Get Client Overview (inquiries, categories, users, catalog preview for logged in client)
 // @route   GET /api/auth/client-overview
-// @access  Private (Client)
+// @access  Private (Client, Superadmin, Admin)
 export const getClientOverview = async (req, res) => {
   try {
-    const clientEmail = req.admin.email.toLowerCase();
+    const isSuper = req.admin.role === 'superadmin';
+    const isAdmin = req.admin.role === 'admin';
+    const client = await Admin.findById(req.admin._id)
+      .select('-password')
+      .populate('parentAdminId', 'name email phone role companyName');
 
-    // Fetch client inquiries if any submitted
-    const enquiries = await Enquiry.find({ email: clientEmail }).sort({ createdAt: -1 });
+    if (!client) {
+      return res.status(404).json({ message: 'Client account not found' });
+    }
 
-    // Fetch projects count & sample designs
+    const clientEmail = (req.admin.email || '').toLowerCase();
+    let clientCats = Array.isArray(client.categories) && client.categories.length > 0
+      ? client.categories
+      : (client.assignedCategory ? [client.assignedCategory] : []);
+
+    // If superadmin or admin previewing client portal, default to all sectors if none explicitly assigned
+    if (clientCats.length === 0 && (isSuper || isAdmin)) {
+      clientCats = [
+        'modular-kitchen-wardrobe-companies',
+        'furniture-manufacturers-dealers',
+        'interior-design-companies-designers',
+        'real-estate-developers-builders',
+        'home-decor-tiles-flooring'
+      ];
+    }
+
+    let enquiries = [];
+    if (isSuper) {
+      enquiries = await Enquiry.find().sort({ createdAt: -1 });
+    } else {
+      const enquiryConditions = [
+        { email: clientEmail },
+        { clientId: req.admin._id }
+      ];
+
+      if (clientCats.length > 0) {
+        const safeRegex = new RegExp(clientCats.join('|').replace(/[-_]/g, '[-_ ]?'), 'i');
+        enquiryConditions.push({ category: { $in: clientCats } });
+        enquiryConditions.push({ clientCategory: { $in: clientCats } });
+        enquiryConditions.push({ category: safeRegex });
+        enquiryConditions.push({ clientCategory: safeRegex });
+      }
+
+      enquiries = await Enquiry.find({ $or: enquiryConditions }).sort({ createdAt: -1 });
+    }
+
+    // Fetch users created by or belonging to this client or their categories
+    let myUsersCount = 0;
+    if (isSuper) {
+      myUsersCount = await Admin.countDocuments({ role: 'user' });
+    } else {
+      const userConditions = [
+        { parentAdminId: req.admin._id },
+        { createdById: req.admin._id }
+      ];
+      if (clientCats.length > 0) {
+        userConditions.push({ categories: { $in: clientCats } });
+        userConditions.push({ assignedCategory: { $in: clientCats } });
+      }
+      myUsersCount = await Admin.countDocuments({
+        role: 'user',
+        $or: userConditions
+      });
+    }
+
+    // Catalog items count in client's categories
+    let catalogCount = 0;
+    if (clientCats.length > 0) {
+      const catRegex = new RegExp(clientCats.join('|').replace(/[-_]/g, '[-_ ]?'), 'i');
+      catalogCount = await CatalogItem.countDocuments({
+        $or: [
+          { clientCategory: { $in: clientCats } },
+          { clientCategory: catRegex }
+        ]
+      });
+    } else {
+      catalogCount = await CatalogItem.countDocuments();
+    }
+
+    // Projects count & sample designs
     const totalProjects = await Project.countDocuments();
     const featuredProjects = await Project.find({ featured: true }).limit(4);
 
     res.json({
       client: {
-        _id: req.admin._id,
-        name: req.admin.name,
-        email: req.admin.email,
-        phone: req.admin.phone,
-        role: req.admin.role
+        _id: client._id,
+        name: client.name,
+        email: client.email,
+        phone: client.phone,
+        role: client.role,
+        companyName: client.companyName || (isSuper ? 'Platform Master Studio' : ''),
+        categories: clientCats,
+        assignedCategory: clientCats[0] || '',
+        assignedAdmin: client.parentAdminId || null
       },
       enquiries,
       stats: {
         totalEnquiries: enquiries.length,
+        newEnquiries: enquiries.filter(e => (e.status || 'New').toLowerCase() === 'new').length,
+        myUsersCount,
+        catalogCount,
         studioProjects: totalProjects
       },
       featuredProjects

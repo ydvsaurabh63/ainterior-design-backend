@@ -17,10 +17,12 @@ const projectSchema = new mongoose.Schema(
     category: {
       type: String,
       default: 'living-room',
-      enum: {
-        values: ['living-room', 'bedroom', 'kitchen', 'full-home', 'furniture'],
-        message: '{VALUE} is not a valid category'
-      }
+      trim: true
+    },
+    clientCategory: {
+      type: String,
+      default: '',
+      trim: true
     },
     location: {
       type: String,

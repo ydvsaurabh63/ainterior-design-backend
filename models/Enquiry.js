@@ -31,6 +31,16 @@ const enquirySchema = new mongoose.Schema(
       type: String,
       default: 'Flexible'
     },
+    category: {
+      type: String,
+      default: '',
+      trim: true
+    },
+    clientCategory: {
+      type: String,
+      default: '',
+      trim: true
+    },
     message: {
       type: String,
       required: [true, 'Message is required']
@@ -39,6 +49,16 @@ const enquirySchema = new mongoose.Schema(
       type: String,
       enum: ['New', 'Contacted', 'Closed'],
       default: 'New'
+    },
+    clientId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+      default: null
+    },
+    adminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+      default: null
     }
   },
   { timestamps: true }

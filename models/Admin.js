@@ -21,7 +21,7 @@ const adminSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['superadmin', 'admin', 'client'],
+      enum: ['superadmin', 'admin', 'client', 'user'],
       default: 'admin'
     },
     status: {
@@ -32,10 +32,35 @@ const adminSchema = new mongoose.Schema(
     phone: {
       type: String,
       default: ''
+    },
+    companyName: {
+      type: String,
+      default: ''
+    },
+    categories: {
+      type: [String],
+      default: []
+    },
+    assignedCategory: {
+      type: String,
+      default: ''
+    },
+    createdById: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+      default: null
+    },
+    parentAdminId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+      default: null
     }
   },
   { timestamps: true }
 );
+
+adminSchema.index({ categories: 1 });
+adminSchema.index({ assignedCategory: 1 });
 
 adminSchema.methods.matchPassword = async function (enteredPassword) {
   return await bcrypt.compare(enteredPassword, this.password);
