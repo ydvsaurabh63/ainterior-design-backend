@@ -7,17 +7,27 @@ import {
   updateUser,
   deleteUser,
   getClientOverview,
-  getAdminsList
+  getAdminsList,
+  forgotPassword,
+  verifyOtp,
+  resetPassword,
+  impersonateUser
 } from '../controllers/authController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
 const router = express.Router();
 
-// Public login
+// Public auth routes
 router.post('/login', authAdmin);
+router.post('/forgot-password', forgotPassword);
+router.post('/verify-otp', verifyOtp);
+router.post('/reset-password', resetPassword);
 
 // Private profile
 router.get('/me', protect, getAdminProfile);
+
+// Superadmin direct switch/login into Admin Dashboard
+router.post('/impersonate/:id', protect, authorize('superadmin'), impersonateUser);
 
 // Client overview (accessible by Client, and previewable by Superadmin & Admin)
 router.get('/client-overview', protect, authorize('client', 'superadmin', 'admin'), getClientOverview);

@@ -49,14 +49,14 @@ Do not alter structural walls or doors.`;
  * Main service method to trigger AI Room Redesign via Replicate / PixVerse SDK
  */
 export const generateRoomRedesign = async ({ file, imageUrl, roomType, style, productName, productImageUrl, customInstruction }) => {
-  const rawToken = (process.env.PIXVERSE_API_KEY || process.env.REPLICATE_API_TOKEN || process.env.AI_API_KEY || '').trim();
+  const rawToken = (process.env.REPLICATE_API_TOKEN || process.env.AI_API_KEY || process.env.PIXVERSE_API_KEY || '').trim();
   const userId = (process.env.PIXVERSE_USER_ID || '').trim();
 
   // Check if token is present
-  const isTokenValid = Boolean(rawToken && rawToken.length > 3);
+  const isTokenValid = Boolean(rawToken && rawToken.length > 5);
 
   if (!isTokenValid) {
-    throw new Error('AI API Key is missing. Please check PIXVERSE_API_KEY or REPLICATE_API_TOKEN in backend .env');
+    throw new Error('REPLICATE_API_TOKEN is missing. Please check REPLICATE_API_TOKEN in backend .env');
   }
 
   try {
@@ -152,6 +152,12 @@ export const generateRoomRedesign = async ({ file, imageUrl, roomType, style, pr
     };
   } catch (error) {
     console.error(`[AI Interior Service] Replicate API call failed: ${error.message || error}`);
+    if (error.message && (error.message.includes('Insufficient credit') || error.message.includes('402'))) {
+      throw new Error('Replicate API: Insufficient credit. Please add billing/credits at https://replicate.com/account/billing to run AI room generation.');
+    }
+    if (error.message && (error.message.includes('Unauthenticated') || error.message.includes('401'))) {
+      throw new Error('Replicate API: Invalid authentication token. Please verify REPLICATE_API_TOKEN in backend .env.');
+    }
     throw error;
   }
 };

@@ -17,9 +17,12 @@ export const getCatalogItems = async (req, res, next) => {
       createdBy: { $ne: null }
     };
 
-    // Filter by client category
+    // Filter by client category (supports both slug and full title format)
     if (clientCategory && clientCategory !== 'all') {
-      query.clientCategory = clientCategory;
+      const cleanCat = clientCategory.trim();
+      const pattern = cleanCat.split(/[-_]+/).filter(Boolean).join('.*');
+      const safeRegex = new RegExp(pattern, 'i');
+      query.clientCategory = safeRegex;
     }
 
     // Filter by object category

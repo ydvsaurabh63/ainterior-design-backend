@@ -1,15 +1,17 @@
+import crypto from 'crypto';
 import Admin from '../models/Admin.js';
 import Enquiry from '../models/Enquiry.js';
 import Project from '../models/Project.js';
 import CatalogItem from '../models/CatalogItem.js';
 import generateToken from '../utils/generateToken.js';
+import { sendOtpEmail } from '../utils/sendEmail.js';
 
 // @desc    Auth user (Superadmin, Admin, Client) & get token
 // @route   POST /api/auth/login
 // @access  Public
 export const authAdmin = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, portalRole } = req.body;
 
     if (!email || !password) {
       return res.status(400).json({ message: 'Please provide email and password' });
@@ -22,6 +24,25 @@ export const authAdmin = async (req, res) => {
         return res.status(403).json({
           message: 'Your account is deactivated. Please contact the administrator.'
         });
+      }
+
+      // Check portal restrictions if portalRole is specified
+      if (portalRole) {
+        if (portalRole === 'superadmin' && user.role !== 'superadmin') {
+          return res.status(403).json({
+            message: 'Access Denied: Only Superadmin can log in from the Superadmin portal.'
+          });
+        }
+        if (portalRole === 'admin' && user.role !== 'admin' && user.role !== 'superadmin') {
+          return res.status(403).json({
+            message: 'Access Denied: This portal is for Administrators only. Clients should use the Client Portal (/client/login).'
+          });
+        }
+        if (portalRole === 'client' && user.role !== 'client') {
+          return res.status(403).json({
+            message: 'Access Denied: This portal is for Clients only. Administrators should use the Admin Portal (/admin/login).'
+          });
+        }
       }
 
       res.json({
@@ -497,7 +518,8 @@ export const getClientOverview = async (req, res) => {
       ];
 
       if (clientCats.length > 0) {
-        const safeRegex = new RegExp(clientCats.join('|').replace(/[-_]/g, '[-_ ]?'), 'i');
+        const catPatterns = clientCats.map((c) => c.split(/[-_]+/).filter(Boolean).join('.*'));
+        const safeRegex = new RegExp(catPatterns.join('|'), 'i');
         enquiryConditions.push({ category: { $in: clientCats } });
         enquiryConditions.push({ clientCategory: { $in: clientCats } });
         enquiryConditions.push({ category: safeRegex });
@@ -529,7 +551,8 @@ export const getClientOverview = async (req, res) => {
     // Catalog items count in client's categories
     let catalogCount = 0;
     if (clientCats.length > 0) {
-      const catRegex = new RegExp(clientCats.join('|').replace(/[-_]/g, '[-_ ]?'), 'i');
+      const catPatterns = clientCats.map((c) => c.split(/[-_]+/).filter(Boolean).join('.*'));
+      const catRegex = new RegExp(catPatterns.join('|'), 'i');
       catalogCount = await CatalogItem.countDocuments({
         $or: [
           { clientCategory: { $in: clientCats } },
@@ -570,3 +593,175 @@ export const getClientOverview = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+// @desc    Forgot Password - Send 6-Digit OTP to User's Email
+// @route   POST /api/auth/forgot-password
+// @access  Public
+export const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ message: 'Please provide a valid registered email address' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const user = await Admin.findOne({ email: cleanEmail });
+
+    if (!user) {
+      return res.status(404).json({ message: 'No account found with this email address' });
+    }
+
+    if (user.status === 'inactive') {
+      return res.status(403).json({ message: 'This account is deactivated. Please contact the administrator.' });
+    }
+
+    // Generate secure 6-digit numeric OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Hash OTP before saving to DB
+    const hashedOtp = crypto.createHash('sha256').update(otp).digest('hex');
+
+    // Save hashed OTP with 10-minute validity
+    user.resetPasswordOtp = hashedOtp;
+    user.resetPasswordOtpExpire = Date.now() + 10 * 60 * 1000;
+    await user.save({ validateBeforeSave: false });
+
+    // Send email via nodemailer
+    const emailResult = await sendOtpEmail({
+      to: user.email,
+      otp,
+      userName: user.name
+    });
+
+    if (!emailResult.sent && emailResult.notConfigured) {
+      console.log('----------------------------------------------------');
+      console.log(`[OTP GENERATED FOR ${user.email}]: >>> ${otp} <<<`);
+      console.log(`(Real email delivery requires EMAIL_USER & EMAIL_PASS in backend/.env)`);
+      console.log('----------------------------------------------------');
+      return res.json({
+        success: true,
+        message: `OTP generated for ${user.email}! (Add EMAIL_USER and EMAIL_PASS in backend/.env to deliver to real inbox)`
+      });
+    }
+
+    if (!emailResult.sent && emailResult.error) {
+      return res.status(500).json({
+        message: `Failed to deliver email: ${emailResult.error}. Please check your EMAIL_USER and EMAIL_PASS in backend/.env`
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `A 6-digit verification code has been sent directly to ${user.email}. Please check your email inbox!`
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Verify 6-Digit OTP
+// @route   POST /api/auth/verify-otp
+// @access  Public
+export const verifyOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({ message: 'Email and 6-digit OTP code are required' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const hashedOtp = crypto.createHash('sha256').update(otp.toString().trim()).digest('hex');
+
+    const user = await Admin.findOne({
+      email: cleanEmail,
+      resetPasswordOtp: hashedOtp,
+      resetPasswordOtpExpire: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired OTP code. Please request a new code.' });
+    }
+
+    res.json({
+      success: true,
+      message: 'OTP verified successfully. You can now set your new password.'
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Reset Password with Verified OTP
+// @route   POST /api/auth/reset-password
+// @access  Public
+export const resetPassword = async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ message: 'Email, OTP, and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters long' });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    const hashedOtp = crypto.createHash('sha256').update(otp.toString().trim()).digest('hex');
+
+    const user = await Admin.findOne({
+      email: cleanEmail,
+      resetPasswordOtp: hashedOtp,
+      resetPasswordOtpExpire: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired OTP code. Please start over.' });
+    }
+
+    // Set new password (pre-save hook will hash it with bcrypt)
+    user.password = newPassword;
+    user.resetPasswordOtp = null;
+    user.resetPasswordOtpExpire = null;
+    await user.save();
+
+    res.json({
+      success: true,
+      message: 'Password reset successful! You can now log in with your new password.'
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Superadmin direct login/switch into an admin's account
+// @route   POST /api/auth/impersonate/:id
+// @access  Private (Superadmin only)
+export const impersonateUser = async (req, res) => {
+  try {
+    const targetUser = await Admin.findById(req.params.id);
+    if (!targetUser) {
+      return res.status(404).json({ message: 'Admin user not found' });
+    }
+    if (targetUser.status === 'inactive') {
+      return res.status(400).json({ message: 'Target user account is currently inactive' });
+    }
+
+    res.json({
+      _id: targetUser._id,
+      name: targetUser.name,
+      email: targetUser.email,
+      role: targetUser.role || 'admin',
+      status: targetUser.status || 'active',
+      phone: targetUser.phone || '',
+      companyName: targetUser.companyName || '',
+      categories: targetUser.categories || [],
+      assignedCategory: targetUser.assignedCategory || '',
+      token: generateToken(targetUser._id)
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
